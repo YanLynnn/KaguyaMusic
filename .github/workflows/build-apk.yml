@@ -5,6 +5,9 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -35,8 +38,25 @@ jobs:
           chmod +x ./gradlew
           ./gradlew assembleDebug --stacktrace
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Kaguya-debug-APK
-          path: app/build/outputs/apk/debug/*.apk
-          retention-days: 30
+      - name: Rename APKs
+        id: apk
+        run: |
+          VERSION=$(sed -nE 's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' app/build.gradle.kts | head -n 1)
+          D=app/build/outputs/apk/debug
+          cp "$D/app-universal-debug.apk" "$D/kaguya-v${VERSION}-debug.apk"
+          cp "$D/app-arm64-v8a-debug.apk" "$D/kaguya-v${VERSION}-arm64-v8a.apk"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ steps.apk.outputs.version }}
+        run: |
+          D=app/build/outputs/apk/debug
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" \
+            "$D/kaguya-v${{ steps.apk.outputs.version }}-debug.apk" \
+            "$D/kaguya-v${{ steps.apk.outputs.version }}-arm64-v8a.apk" \
+            --title "Kaguya $TAG" \
+            --notes "Kaguya $TAG (debug build). Fork of Kuro by ayashiiiyo, GPL-3.0." \
+            --latest
